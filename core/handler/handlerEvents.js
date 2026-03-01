@@ -8,18 +8,19 @@ function getType(obj) {
 }
 
 function getRole(threadData, senderID) {
-        const adminBot = global.noobCore.ncsetting.adminBot || [];
-        const creator = global.noobCore.ncsetting.creator || [];
+        const adminBot = (global.noobCore.ncsetting.adminBot || []).map(String);
+        const creator = (global.noobCore.ncsetting.creator || []).map(String);
+        const sID = String(senderID);
 
         if (!senderID) return 0;
 
-        const adminBox = threadData?.adminIDs || [];
+        const adminBox = (threadData?.adminIDs || []).map(String);
 
-        return creator.includes(senderID)
+        return creator.includes(sID)
                 ? 3          // Creator
-                : adminBot.includes(senderID)
+                : adminBot.includes(sID)
                 ? 2
-                : adminBox.includes(senderID)
+                : adminBox.includes(sID)
                 ? 1      
                 : 0;
 }
@@ -80,7 +81,10 @@ function getRoleConfig(utils, command, isGroup, threadData, commandName) {
 
 function isBannedOrOnlyAdmin(userData, threadData, senderID, threadID, isGroup, commandName, message, lang) {
         const ncsetting = global.noobCore.ncsetting;
-        const { adminBot, creator, hideNotiMessage } = ncsetting;
+        const adminBot = (ncsetting.adminBot || []).map(String);
+        const creator = (ncsetting.creator || []).map(String);
+        const sID = String(senderID);
+        const { hideNotiMessage } = ncsetting;
 
         // check if user banned
         const infoBannedUser = userData.banned;
@@ -94,7 +98,7 @@ function isBannedOrOnlyAdmin(userData, threadData, senderID, threadID, isGroup, 
         // check if only admin bot
         if (
                 ncsetting.adminOnly.enable == true
-                && !adminBot.includes(senderID)
+                && !adminBot.includes(sID)
                 && !ncsetting.adminOnly.ignoreCommand.includes(commandName)
         ) {
                 if (hideNotiMessage.adminOnly == false)
@@ -105,7 +109,7 @@ function isBannedOrOnlyAdmin(userData, threadData, senderID, threadID, isGroup, 
         // check if only creator
         if (
                 ncsetting.creatorOnly.enable == true
-                && !creator.includes(senderID)
+                && !creator.includes(sID)
                 && !ncsetting.creatorOnly.ignoreCommand.includes(commandName)
         ) {
                         message.reply("❌ | Currently only Creator users can use bots");
@@ -115,8 +119,8 @@ function isBannedOrOnlyAdmin(userData, threadData, senderID, threadID, isGroup, 
         // check if only premium
         if (
                 ncsetting.premiumOnly.enable == true
-                && !creator.includes(senderID)
-                && !adminBot.includes(senderID)
+                && !creator.includes(sID)
+                && !adminBot.includes(sID)
                 && !ncsetting.premiumOnly.ignoreCommand.includes(commandName)
         ) {
                 const roleForPremium = getRole(threadData, senderID);
@@ -130,8 +134,8 @@ function isBannedOrOnlyAdmin(userData, threadData, senderID, threadID, isGroup, 
         // ==========    Check Thread    ========== //
         if (isGroup == true) {
                 const isAdboxonlyCommand = ["onlyadminbox", "onlyadbox", "adboxonly", "adminboxonly"].includes(commandName.toLowerCase());
-
-                const isAdmin = threadData.adminIDs.includes(senderID) || ncsetting.adminBot.includes(senderID) || ncsetting.creator.includes(senderID);
+                const adminBox = (threadData.adminIDs || []).map(String);
+                const isAdmin = adminBox.includes(sID) || adminBot.includes(sID) || creator.includes(sID);
 
                 if (
                         threadData.data.onlyAdminBox === true
@@ -157,7 +161,7 @@ function isBannedOrOnlyAdmin(userData, threadData, senderID, threadID, isGroup, 
 }
 
 function checkPremium(userData, role) {
-        if (role == 2)
+        if (role == 2 || role == 3)
                 return { status: true, expireTime: null };
 
         const premium = userData.data?.premium || {};
@@ -257,6 +261,7 @@ module.exports = function (api, threadModel, userModel, dashBoardModel, globalMo
                         return;
 
                 const senderID = event.userID || event.senderID || event.author;
+                const sID = String(senderID);
 
                 let threadData = global.db.allThreadData.find(t => t.threadID == threadID);
                 let userData = global.db.allUserData.find(u => u.userID == senderID);
@@ -315,51 +320,66 @@ module.exports = function (api, threadModel, userModel, dashBoardModel, globalMo
                 */
                 let isUserCallCommand = false;
                 async function ncStart() {
-                        // —————————————— CHECK USE PREFIX —————————————— //
                         if (!body)
-                                                        return;
+                                return;
 
                         let args = [];
                         let commandName = "";
                         let command = null;
                         const dateNow = Date.now();
 
+                        const adminBot = (ncsetting.adminBot || []).map(String);
+                        const creator = (ncsetting.creator || []).map(String);
+                        const isAdminOrCreator = adminBot.includes(sID) || creator.includes(sID);
 
                         if (body.startsWith(prefix)) {
-                                                        args = body.slice(prefix.length).trim().split(/ +/);
-                                                        commandName = args.shift().toLowerCase();
-                                                        command = noobCore.commands.get(commandName) || noobCore.commands.get(noobCore.aliases.get(commandName));
+                                args = body.slice(prefix.length).trim().split(/ +/);
+                                commandName = args.shift().toLowerCase();
+                                command = noobCore.commands.get(commandName) || noobCore.commands.get(noobCore.aliases.get(commandName));
 
-                                                        if (command && command.config.usePrefix === false) {
-                                                                                        return await message.reply(`✨ The command "『 ${commandName} 』" does not require a prefix ✨`);
-                                                        }
+                                if (command && command.config.usePrefix === false) {
+                                        return await message.reply(`✨ The command "『 ${commandName} 』" does not require a prefix ✨`);
+                                }
                         }
-
+                        else if (ncsetting.allowAdminNoPrefix === true && isAdminOrCreator) {
+                                args = body.trim().split(/ +/);
+                                const checkName = args.shift().toLowerCase();
+                                const foundCommand = noobCore.commands.get(checkName) || noobCore.commands.get(noobCore.aliases.get(checkName));
+                                
+                                if (foundCommand) {
+                                        command = foundCommand;
+                                        commandName = checkName;
+                                } else {
+                                        return;
+                                }
+                        }
                         else {
-                                                        args = body.trim().split(/ +/);
-                                                        commandName = args.shift().toLowerCase();
-                                                        command = Array.from(noobCore.commands.values()).find(cmd => 
-                                                                                        (cmd.config.name === commandName || 
-                                                                                         (cmd.config.aliases || []).includes(commandName)) &&
-                                                                                        cmd.config.usePrefix === false
-                                                        );
+                                args = body.trim().split(/ +/);
+                                commandName = args.shift().toLowerCase();
+                                command = Array.from(noobCore.commands.values()).find(cmd => 
+                                        (cmd.config.name === commandName || 
+                                         (cmd.config.aliases || []).includes(commandName)) &&
+                                        cmd.config.usePrefix === false
+                                );
                         }
 
-                        if (!command && !body.startsWith(prefix)) {
-                                                        return;
+                        const isNoPrefixAdmin = ncsetting.allowAdminNoPrefix === true && isAdminOrCreator && !body.startsWith(prefix);
+
+                        if (!command && !body.startsWith(prefix) && !isNoPrefixAdmin) {
+                                return;
                         }
-                        // ———————— CHECK ALIASES SET BY GROUP ———————— //
+
                         const aliasesData = threadData.data.aliases || {};
                         for (const cmdName in aliasesData) {
-                                                        if (aliasesData[cmdName].includes(commandName)) {
-                                                                                        command = noobCore.commands.get(cmdName);
-                                                                                        break;
-                                                        }
+                                if (aliasesData[cmdName].includes(commandName)) {
+                                        command = noobCore.commands.get(cmdName);
+                                        break;
+                                }
                         }
-                        // ————————————— SET COMMAND NAME ————————————— //
+
                         if (command)
                                 commandName = command.config.name;
-                        // ——————— FUNCTION REMOVE COMMAND NAME ———————— //
+
                         function removeCommandNameFromBody(body_, prefix_, commandName_) {
                                 if (arguments.length) {
                                         if (typeof body_ != "string")
@@ -372,10 +392,11 @@ module.exports = function (api, threadModel, userModel, dashBoardModel, globalMo
                                         return body_.replace(new RegExp(`^${prefix_}(\\s+|)${commandName_}`, "i"), "").trim();
                                 }
                                 else {
-                                        return body.replace(new RegExp(`^${prefix}(\\s+|)${commandName}`, "i"), "").trim();
+                                        const currentPrefix = isNoPrefixAdmin ? "" : prefix;
+                                        return body.replace(new RegExp(`^${currentPrefix}(\\s+|)${commandName}`, "i"), "").trim();
                                 }
                         }
-                        // —————  CHECK BANNED OR ONLY ADMIN BOX  ————— //
+
                         if (isBannedOrOnlyAdmin(userData, threadData, senderID, threadID, isGroup, commandName, message, langCode))
                                 return;
                         if (!command)
@@ -387,11 +408,11 @@ module.exports = function (api, threadModel, userModel, dashBoardModel, globalMo
                                                                 utils.getText({ lang: langCode, head: "handlerEvents" }, "commandNotFoundWithSuggestion", commandName, prefix, similarCommand) :
                                                                 utils.getText({ lang: langCode, head: "handlerEvents" }, "commandNotFound", commandName, prefix)
                                         ) :
-                                                        utils.getText({ lang: langCode, head: "handlerEvents" }, "commandNotFound2", prefix)
+                                                        utils.getText({ lang: langCode, head: "handlerEvents" }, "commandNotFound2", (userData?.name || "Fb User"), prefix)
                                         );
                                 } else
                                         return true;
-                        // ————————————— CHECK PERMISSION ———————————— //
+
                         const roleConfig = getRoleConfig(utils, command, isGroup, threadData, commandName);
                         const needRole = roleConfig.ncStart;
 
@@ -433,7 +454,6 @@ module.exports = function (api, threadModel, userModel, dashBoardModel, globalMo
                                 }
                         }
 
-                        // ————————————— CHECK PREMIUM ————————————— //
                         if (command.config.premium === true) {
                                 const premiumStatus = checkPremium(userData, role);
                                 if (!premiumStatus.status) {
@@ -444,7 +464,6 @@ module.exports = function (api, threadModel, userModel, dashBoardModel, globalMo
                                 }
                         }
 
-                        // ———————————————— countDown ———————————————— //
                         if (!client.countDown[commandName])
                                 client.countDown[commandName] = {};
                         const timestamps = client.countDown[commandName];
@@ -457,11 +476,10 @@ module.exports = function (api, threadModel, userModel, dashBoardModel, globalMo
                                 if (dateNow < expirationTime)
                                         return await message.reply(utils.getText({ lang: langCode, head: "handlerEvents" }, "waitingForCommand", ((expirationTime - dateNow) / 1000).toString().slice(0, 3)));
                         }
-                        // ——————————————— RUN COMMAND ——————————————— //
+                        
                         const time = getTime("DD/MM/YYYY HH:mm:ss");
                         isUserCallCommand = true;
 
-// ———————— AUTO UNSEEN SETUP ——————//
                         const sentMessageIDs = [];
                         let wrappedMessage = message;
 
@@ -486,7 +504,6 @@ module.exports = function (api, threadModel, userModel, dashBoardModel, globalMo
                                 };
                         }
                         try {
-                                // analytics command call
                                 (async () => {
                                         const analytics = await globalData.get("analytics", "data", {});
                                         if (!analytics[commandName])
@@ -508,7 +525,6 @@ module.exports = function (api, threadModel, userModel, dashBoardModel, globalMo
                                 timestamps[senderID] = dateNow;
                                 log.info("CALL COMMAND", `${commandName} | ${userData.name} | ${senderID} | ${threadID} | ${args.join(" ")}`);
 
-                                // ———— AUTO UNSEEN (DELETE MESSAGES) —— //
                                 if (command.config.autoUnseen && command.config.autoUnseen > 0 && sentMessageIDs.length > 0) {
                                         const unseenDelay = command.config.autoUnseen * 1000;
                                         setTimeout(() => {
@@ -706,8 +722,7 @@ module.exports = function (api, threadModel, userModel, dashBoardModel, globalMo
                 }
 
 
-                /* 
-                 +------------------------------------------------+
+                /* +------------------------------------------------+
                  |                    ON REPLY                    |
                  +------------------------------------------------+
                 */
@@ -926,7 +941,7 @@ module.exports = function (api, threadModel, userModel, dashBoardModel, globalMo
                  +------------------------------------------------+
                 */
                 async function presence() {
-                        // Your code here
+        
                 }
 
                 /*
@@ -935,7 +950,7 @@ module.exports = function (api, threadModel, userModel, dashBoardModel, globalMo
                  +------------------------------------------------+
                 */
                 async function read_receipt() {
-                        // Your code here
+                        
                 }
 
                 /*
@@ -944,7 +959,7 @@ module.exports = function (api, threadModel, userModel, dashBoardModel, globalMo
                  +------------------------------------------------+
                 */
                 async function typ() {
-                        // Your code here
+                        
                 }
 
                 return {
